@@ -1,7 +1,10 @@
 package com.shail.overjet.test.services;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +15,7 @@ import com.shail.overjet.test.entity.PatientIssues;
 import com.shail.overjet.test.entity.PatientVisits;
 import com.shail.overjet.test.repository.PatientIssueRepository;
 import com.shail.overjet.test.repository.PatientVisitsRepository;
+import com.shail.overjet.test.repository.RedisRepository;
 
 @Service
 public class PatientDetailsService {
@@ -21,6 +25,9 @@ public class PatientDetailsService {
 
 	@Autowired
 	PatientVisitsRepository patientVisitsRepository;
+	
+	@Autowired
+	RedisRepository redisRepository;
 
 	public void addPatientVisitDetails(PatientDetails patientDetails) {
 		PatientVisits patientVisits = new PatientVisits();
@@ -28,6 +35,10 @@ public class PatientDetailsService {
 		patientVisits.setHospitalId(patientDetails.getHospitalId());
 		patientVisits.setPatientId(patientDetails.getPatientId());
 		patientVisits.setDocuments(String.join(",", patientDetails.getDocuments()));
+		
+		if (CollectionUtils.isNotEmpty(patientDetails.getDocuments())) {
+			redisRepository.put(patientDetails.getPatientId(), patientDetails.getDocuments());
+		}
 
 		patientVisitsRepository.save(patientVisits);
 		patientIssueRepository.saveAll(getPatientIssue(patientDetails));
@@ -50,6 +61,24 @@ public class PatientDetailsService {
 
 		return patientIssues;
 
+	}
+
+	public Optional<List<String>> getPatientDocuments(String patientId, boolean isEvictionEnabled) {
+		Optional<List<String>> documents = redisRepository.get(patientId);
+
+		if (documents.isEmpty() && isEvictionEnabled) {
+
+			Optional<PatientVisits> patientVisit = patientVisitsRepository.findByPatientId(patientId);
+
+			Optional<List<String>> documentExtractor = patientVisit.isPresent()
+					? Optional.of(
+							Arrays.stream(patientVisit.get().getDocuments().split(",")).collect(Collectors.toList()))
+					: Optional.empty();
+
+			return documentExtractor;
+		}
+
+		return documents;
 	}
 
 }
